@@ -1,10 +1,3 @@
-# ------------------------------------------------------------------
-# SimpleNet: A Simple Network for Image Anomaly Detection and Localization (https://openaccess.thecvf.com/content/CVPR2023/papers/Liu_SimpleNet_A_Simple_Network_for_Image_Anomaly_Detection_and_Localization_CVPR_2023_paper.pdf)
-# Github source: https://github.com/DonaldRR/SimpleNet
-# Licensed under the MIT License [see LICENSE for details]
-# The script is based on the code of PatchCore (https://github.com/amazon-science/patchcore-inspection)
-# ------------------------------------------------------------------
-
 """detection methods."""
 import logging
 import os
@@ -31,16 +24,20 @@ def init_weight(m):
     elif isinstance(m, torch.nn.Conv2d):
         torch.nn.init.xavier_normal_(m.weight)
 
-
+# 判别器网络
 class Discriminator(torch.nn.Module):
+    # 传入：输入维度、全连接层数、隐藏层维度（None时自动计算）
     def __init__(self, in_planes, n_layers=1, hidden=None):
         super(Discriminator, self).__init__()
 
         _hidden = in_planes if hidden is None else hidden
         self.body = torch.nn.Sequential()
+        # 循环构建中间层（self.body）
         for i in range(n_layers-1):
+            # 控制IO维度
             _in = in_planes if i == 0 else _hidden
             _hidden = int(_hidden // 1.5) if hidden is None else hidden
+            # 添加固定的模块
             self.body.add_module('block%d'%(i+1),
                                  torch.nn.Sequential(
                                      torch.nn.Linear(_in, _hidden),
@@ -50,14 +47,15 @@ class Discriminator(torch.nn.Module):
         self.tail = torch.nn.Linear(_hidden, 1, bias=False)
         self.apply(init_weight)
 
+    # 输出判别器的得分
     def forward(self,x):
         x = self.body(x)
         x = self.tail(x)
         return x
 
-
+# 投影网络：高维👉低维
 class Projection(torch.nn.Module):
-    
+    # 传入：输入维度、输出维度、FC层数、激活函数类型
     def __init__(self, in_planes, out_planes=None, n_layers=1, layer_type=0):
         super(Projection, self).__init__()
         
@@ -66,11 +64,13 @@ class Projection(torch.nn.Module):
         self.layers = torch.nn.Sequential()
         _in = None
         _out = None
+        # 循环构建FC层
         for i in range(n_layers):
             _in = in_planes if i == 0 else _out
             _out = out_planes 
             self.layers.add_module(f"{i}fc", 
                                    torch.nn.Linear(_in, _out))
+            # 添加激活函数
             if i < n_layers - 1:
                 # if layer_type > 0:
                 #     self.layers.add_module(f"{i}bn", 
@@ -80,13 +80,15 @@ class Projection(torch.nn.Module):
                                            torch.nn.LeakyReLU(.2))
         self.apply(init_weight)
     
+    # 返回投影后的特征
     def forward(self, x):
         
+        # 未启用残差连接？
         # x = .1 * self.layers(x) + x
         x = self.layers(x)
         return x
 
-
+# 日志
 class TBWrapper:
     
     def __init__(self, log_dir):
@@ -96,12 +98,15 @@ class TBWrapper:
     def step(self):
         self.g_iter += 1
 
+# 核心类
 class SimpleNet(torch.nn.Module):
+    # 设备
     def __init__(self, device):
         """anomaly detection class."""
         super(SimpleNet, self).__init__()
         self.device = device
 
+    # 初始化，构建整个网络
     def load(
         self,
         backbone,
@@ -135,27 +140,37 @@ class SimpleNet(torch.nn.Module):
         def show_mem():
             return(psutil.Process(pid).memory_info())
 
+        # 骨干网络
         self.backbone = backbone.to(device)
+        # 列表，指定哪些层负责特征提取
         self.layers_to_extract_from = layers_to_extract_from
         self.input_shape = input_shape
 
         self.device = device
+        # 分块
         self.patch_maker = PatchMaker(patchsize, stride=patchstride)
-
+        # 动态的注册子模块/分支网络
+        # 
         self.forward_modules = torch.nn.ModuleDict({})
 
+        # 特征提取，可以指定到哪一层
         feature_aggregator = common.NetworkFeatureAggregator(
             self.backbone, self.layers_to_extract_from, self.device, train_backbone
         )
+        # 取出特征维度
         feature_dimensions = feature_aggregator.feature_dimensions(input_shape)
         self.forward_modules["feature_aggregator"] = feature_aggregator
 
+        # 特征预处理
         preprocessing = common.Preprocessing(
             feature_dimensions, pretrain_embed_dimension
         )
         self.forward_modules["preprocessing"] = preprocessing
 
+        # 处理后的维度（concat）
         self.target_embed_dimension = target_embed_dimension
+
+        # 融合特征
         preadapt_aggregator = common.Aggregator(
             target_dim=target_embed_dimension
         )
@@ -163,28 +178,34 @@ class SimpleNet(torch.nn.Module):
         _ = preadapt_aggregator.to(self.device)
 
         self.forward_modules["preadapt_aggregator"] = preadapt_aggregator
+        # 得到最终的特征
 
+        # 定位异常热力图
         self.anomaly_segmentor = common.RescaleSegmentor(
             device=self.device, target_size=input_shape[-2:]
         )
 
         self.embedding_size = embedding_size if embedding_size is not None else self.target_embed_dimension
+        
+        # --- 训练参数 ---
         self.meta_epochs = meta_epochs
         self.lr = lr
         self.cos_lr = cos_lr
         self.train_backbone = train_backbone
+        # adamw优化器
         if self.train_backbone:
             self.backbone_opt = torch.optim.AdamW(self.forward_modules["feature_aggregator"].backbone.parameters(), lr)
         # AED
         self.aed_meta_epochs = aed_meta_epochs
 
+        # 特征投影
         self.pre_proj = pre_proj
         if self.pre_proj > 0:
             self.pre_projection = Projection(self.target_embed_dimension, self.target_embed_dimension, pre_proj, proj_layer_type)
             self.pre_projection.to(self.device)
             self.proj_opt = torch.optim.AdamW(self.pre_projection.parameters(), lr*.1)
 
-        # Discriminator
+        # 判别器
         self.auto_noise = [auto_noise, None]
         self.dsc_lr = dsc_lr
         self.gan_epochs = gan_epochs
@@ -212,23 +233,28 @@ class SimpleNet(torch.nn.Module):
         os.makedirs(self.tb_dir, exist_ok=True)
         self.logger = TBWrapper(self.tb_dir) #SummaryWriter(log_dir=tb_dir)
     
-
+    # 一批图像 👉 特征向量
     def embed(self, data):
         if isinstance(data, torch.utils.data.DataLoader):
             features = []
+            # 遍历这批图片
             for image in data:
                 if isinstance(image, dict):
                     image = image["image"]
                     input_image = image.to(torch.float).to(self.device)
                 with torch.no_grad():
+                    # 对每张图片转换成特征向量
                     features.append(self._embed(input_image))
             return features
         return self._embed(data)
 
+    # 特征提取
     def _embed(self, images, detach=True, provide_patch_shapes=False, evaluation=False):
         """Returns feature embeddings for images."""
 
+        # B是批次大小batch
         B = len(images)
+        # 训练模式下，更新特征提取器（骨干网络）
         if not evaluation and self.train_backbone:
             self.forward_modules["feature_aggregator"].train()
             features = self.forward_modules["feature_aggregator"](images, eval=evaluation)
@@ -237,13 +263,16 @@ class SimpleNet(torch.nn.Module):
             with torch.no_grad():
                 features = self.forward_modules["feature_aggregator"](images)
 
+        # 从指定的层提取特征
         features = [features[layer] for layer in self.layers_to_extract_from]
 
         for i, feat in enumerate(features):
+            # 处理ViT输出的三维特征
             if len(feat.shape) == 3:
                 B, L, C = feat.shape
                 features[i] = feat.reshape(B, int(math.sqrt(L)), int(math.sqrt(L)), C).permute(0, 3, 1, 2)
 
+        # 分块
         features = [
             self.patch_maker.patchify(x, return_spatial_info=True) for x in features
         ]
@@ -255,13 +284,13 @@ class SimpleNet(torch.nn.Module):
             _features = features[i]
             patch_dims = patch_shapes[i]
 
-            # TODO(pgehler): Add comments
             _features = _features.reshape(
                 _features.shape[0], patch_dims[0], patch_dims[1], *_features.shape[2:]
             )
             _features = _features.permute(0, -3, -2, -1, 1, 2)
             perm_base_shape = _features.shape
             _features = _features.reshape(-1, *_features.shape[-2:])
+            # 统一不同分辨率的特征的尺寸
             _features = F.interpolate(
                 _features.unsqueeze(1),
                 size=(ref_num_patches[0], ref_num_patches[1]),
@@ -287,7 +316,8 @@ class SimpleNet(torch.nn.Module):
 
     
     def test(self, training_data, test_data, save_segmentation_images):
-
+        
+        # 加载模型
         ckpt_path = os.path.join(self.ckpt_dir, "models.ckpt")
         if os.path.exists(ckpt_path):
             state_dicts = torch.load(ckpt_path, map_location=self.device)
@@ -296,18 +326,23 @@ class SimpleNet(torch.nn.Module):
             if "pretrained_dec" in state_dicts:
                 self.feature_dec.load_state_dict(state_dicts["pretrained_dec"])
 
+        # 初始化特征提取器
         aggregator = {"scores": [], "segmentations": [], "features": []}
+        
+        # 推理打分
         scores, segmentations, features, labels_gt, masks_gt = self.predict(test_data)
         aggregator["scores"].append(scores)
         aggregator["segmentations"].append(segmentations)
         aggregator["features"].append(features)
 
+        # 归一化
         scores = np.array(aggregator["scores"])
         min_scores = scores.min(axis=-1).reshape(-1, 1)
         max_scores = scores.max(axis=-1).reshape(-1, 1)
         scores = (scores - min_scores) / (max_scores - min_scores)
         scores = np.mean(scores, axis=0)
 
+        # 求分割图
         segmentations = np.array(aggregator["segmentations"])
         min_scores = (
             segmentations.reshape(len(segmentations), -1)
@@ -320,8 +355,10 @@ class SimpleNet(torch.nn.Module):
             .reshape(-1, 1, 1, 1)
         )
         segmentations = (segmentations - min_scores) / (max_scores - min_scores)
+        # 用平均值作为最终分数
         segmentations = np.mean(segmentations, axis=0)
 
+        # 生成异常标签
         anomaly_labels = [
             x[1] != "good" for x in test_data.dataset.data_to_iterate
         ]
@@ -349,10 +386,13 @@ class SimpleNet(torch.nn.Module):
         scores = (scores - img_min_scores) / (img_max_scores - img_min_scores)
         # scores = np.mean(scores, axis=0)
 
+        # 图像级AUROC：这张图的异常分数是否符合ground truth
         auroc = metrics.compute_imagewise_retrieval_metrics(
             scores, labels_gt 
         )["auroc"]
 
+        # 如果有掩码标注，那么计算像素级AUROC
+        # 检查他能否找到异常的部位
         if len(masks_gt) > 0:
             segmentations = np.array(segmentations)
             min_scores = (
@@ -370,13 +410,13 @@ class SimpleNet(torch.nn.Module):
                 norm_segmentations += (segmentations - min_score) / max(max_score - min_score, 1e-2)
             norm_segmentations = norm_segmentations / len(scores)
 
-
-            # Compute PRO score & PW Auroc for all images
             pixel_scores = metrics.compute_pixelwise_retrieval_metrics(
                 norm_segmentations, masks_gt)
                 # segmentations, masks_gt
+        
             full_pixel_auroc = pixel_scores["auroc"]
-
+            
+            # 计算PRO：能否识别到完整的异常区域
             pro = metrics.compute_pro(np.squeeze(np.array(masks_gt)), 
                                             norm_segmentations)
         else:
@@ -391,6 +431,7 @@ class SimpleNet(torch.nn.Module):
         
         state_dict = {}
         ckpt_path = os.path.join(self.ckpt_dir, "ckpt.pth")
+        # 加载预训练检查点
         if os.path.exists(ckpt_path):
             state_dict = torch.load(ckpt_path, map_location=self.device)
             if 'discriminator' in state_dict:
@@ -417,17 +458,23 @@ class SimpleNet(torch.nn.Module):
                     for k, v in self.pre_projection.state_dict().items()})
 
         best_record = None
+        # 主训练循环
         for i_mepoch in range(self.meta_epochs):
-
+            
+            # 训练判别器
             self._train_discriminator(training_data)
 
             # torch.cuda.empty_cache()
+            # 推理
             scores, segmentations, features, labels_gt, masks_gt = self.predict(test_data)
+            # 评估指标
             auroc, full_pixel_auroc, pro = self._evaluate(test_data, scores, segmentations, features, labels_gt, masks_gt)
+            # 记录到日志
             self.logger.logger.add_scalar("i-auroc", auroc, i_mepoch)
             self.logger.logger.add_scalar("p-auroc", full_pixel_auroc, i_mepoch)
             self.logger.logger.add_scalar("pro", pro, i_mepoch)
 
+            # 维护最佳模型
             if best_record is None:
                 best_record = [auroc, full_pixel_auroc, pro]
                 update_state_dict(state_dict)
@@ -435,6 +482,7 @@ class SimpleNet(torch.nn.Module):
             else:
                 if auroc > best_record[0]:
                     best_record = [auroc, full_pixel_auroc, pro]
+                    # 更新
                     update_state_dict(state_dict)
                     # state_dict = OrderedDict({k:v.detach().cpu() for k, v in self.state_dict().items()})
                 elif auroc == best_record[0] and full_pixel_auroc > best_record[1]:
@@ -447,15 +495,18 @@ class SimpleNet(torch.nn.Module):
                   f"  P-AUROC{round(full_pixel_auroc, 4)}(MAX:{round(best_record[1], 4)}) -----"
                   f"  PRO-AUROC{round(pro, 4)}(MAX:{round(best_record[2], 4)}) -----")
         
+        # 保存模型
         torch.save(state_dict, ckpt_path)
         
         return best_record
             
-
+    # 训练判别器 细节
     def _train_discriminator(self, input_data):
         """Computes and sets the support features for SPADE."""
+        # 打开eval模式
         _ = self.forward_modules.eval()
         
+        # 投影网络
         if self.pre_proj > 0:
             self.pre_projection.train()
         self.discriminator.train()
@@ -463,6 +514,7 @@ class SimpleNet(torch.nn.Module):
         # self.feature_dec.eval()
         i_iter = 0
         LOGGER.info(f"Training discriminator...")
+        # 循环gan_epochs次
         with tqdm.tqdm(total=self.gan_epochs) as pbar:
             for i_epoch in range(self.gan_epochs):
                 all_loss = []
@@ -470,6 +522,7 @@ class SimpleNet(torch.nn.Module):
                 all_p_fake = []
                 all_p_interp = []
                 embeddings_list = []
+                # 遍历输入数据
                 for data_item in input_data:
                     self.dsc_opt.zero_grad()
                     if self.pre_proj > 0:
@@ -484,18 +537,23 @@ class SimpleNet(torch.nn.Module):
                     else:
                         true_feats = self._embed(img, evaluation=False)[0]
                     
+                    # 生成噪声
                     noise_idxs = torch.randint(0, self.mix_noise, torch.Size([true_feats.shape[0]]))
                     noise_one_hot = torch.nn.functional.one_hot(noise_idxs, num_classes=self.mix_noise).to(self.device) # (N, K)
                     noise = torch.stack([
                         torch.normal(0, self.noise_std * 1.1**(k), true_feats.shape)
                         for k in range(self.mix_noise)], dim=1).to(self.device) # (N, K, C)
                     noise = (noise * noise_one_hot.unsqueeze(-1)).sum(1)
+
+                    # 添加到真实特征上
                     fake_feats = true_feats + noise
 
+                    # 判别器给出得分
                     scores = self.discriminator(torch.cat([true_feats, fake_feats]))
                     true_scores = scores[:len(true_feats)]
                     fake_scores = scores[len(fake_feats):]
                     
+                    # 计算损失
                     th = self.dsc_margin
                     p_true = (true_scores.detach() >= th).sum() / len(true_scores)
                     p_fake = (fake_scores.detach() < -th).sum() / len(fake_scores)
@@ -509,6 +567,7 @@ class SimpleNet(torch.nn.Module):
                     self.logger.logger.add_scalar("loss", loss, self.logger.g_iter)
                     self.logger.step()
 
+                    # 反向传播
                     loss.backward()
                     if self.pre_proj > 0:
                         self.proj_opt.step()
@@ -524,6 +583,7 @@ class SimpleNet(torch.nn.Module):
                 if len(embeddings_list) > 0:
                     self.auto_noise[1] = torch.cat(embeddings_list).std(0).mean(-1)
                 
+                # 学习率调度
                 if self.cos_lr:
                     self.dsc_schl.step()
                 
@@ -531,6 +591,8 @@ class SimpleNet(torch.nn.Module):
                 all_p_true = sum(all_p_true) / len(input_data)
                 all_p_fake = sum(all_p_fake) / len(input_data)
                 cur_lr = self.dsc_opt.state_dict()['param_groups'][0]['lr']
+
+                # 更新进度条
                 pbar_str = f"epoch:{i_epoch} loss:{round(all_loss, 5)} "
                 pbar_str += f"lr:{round(cur_lr, 6)}"
                 pbar_str += f" p_true:{round(all_p_true, 3)} p_fake:{round(all_p_fake, 3)}"
@@ -541,10 +603,12 @@ class SimpleNet(torch.nn.Module):
 
 
     def predict(self, data, prefix=""):
+        # 区分是加载器还是单张图片
         if isinstance(data, torch.utils.data.DataLoader):
             return self._predict_dataloader(data, prefix)
         return self._predict(data)
 
+    # 处理数据加载器
     def _predict_dataloader(self, dataloader, prefix):
         """This function provides anomaly scores/maps for full dataloaders."""
         _ = self.forward_modules.eval()
@@ -560,19 +624,23 @@ class SimpleNet(torch.nn.Module):
 
         with tqdm.tqdm(dataloader, desc="Inferring...", leave=False) as data_iterator:
             for data in data_iterator:
+                # 收集ground truth
                 if isinstance(data, dict):
                     labels_gt.extend(data["is_anomaly"].numpy().tolist())
                     if data.get("mask", None) is not None:
                         masks_gt.extend(data["mask"].numpy().tolist())
                     image = data["image"]
                     img_paths.extend(data['image_path'])
+                # 推理
                 _scores, _masks, _feats = self._predict(image)
+                # 结果得分
                 for score, mask, feat, is_anomaly in zip(_scores, _masks, _feats, data["is_anomaly"].numpy().tolist()):
                     scores.append(score)
                     masks.append(mask)
 
         return scores, masks, features, labels_gt, masks_gt
 
+    # 处理单张图像
     def _predict(self, images):
         """Infer score and mask for a batch of images."""
         images = images.to(torch.float).to(self.device)
@@ -583,24 +651,30 @@ class SimpleNet(torch.nn.Module):
             self.pre_projection.eval()
         self.discriminator.eval()
         with torch.no_grad():
+            # 得到特征向量
             features, patch_shapes = self._embed(images,
                                                  provide_patch_shapes=True, 
                                                  evaluation=True)
+            # 特征投影
             if self.pre_proj > 0:
                 features = self.pre_projection(features)
 
             # features = features.cpu().numpy()
             # features = np.ascontiguousarray(features.cpu().numpy())
+            
+            # 异常评分
             patch_scores = image_scores = -self.discriminator(features)
             patch_scores = patch_scores.cpu().numpy()
             image_scores = image_scores.cpu().numpy()
 
+            # 图像级分数
             image_scores = self.patch_maker.unpatch_scores(
                 image_scores, batchsize=batchsize
             )
             image_scores = image_scores.reshape(*image_scores.shape[:2], -1)
             image_scores = self.patch_maker.score(image_scores)
 
+            # 像素级分数
             patch_scores = self.patch_maker.unpatch_scores(
                 patch_scores, batchsize=batchsize
             )
@@ -670,13 +744,16 @@ class SimpleNet(torch.nn.Module):
             mask_transform=mask_transform,
         )
 
-# Image handling classes.
+# 图像分割成小块，小块拼装回图像
 class PatchMaker:
     def __init__(self, patchsize, top_k=0, stride=None):
+        # 每个块的大小
         self.patchsize = patchsize
         self.stride = stride
+        # 评分时选择k个最大值
         self.top_k = top_k
 
+    # 把输入的特征图分割成小块
     def patchify(self, features, return_spatial_info=False):
         """Convert a tensor into a tensor of respective patches.
         Args:
@@ -685,17 +762,24 @@ class PatchMaker:
             x: [torch.Tensor, bs * w//stride * h//stride, c, patchsize,
             patchsize]
         """
+        # pad来确保覆盖
         padding = int((self.patchsize - 1) / 2)
+
+        # 使用Unfold将特征图展开为小块
         unfolder = torch.nn.Unfold(
             kernel_size=self.patchsize, stride=self.stride, padding=padding, dilation=1
         )
         unfolded_features = unfolder(features)
+
+        # 计算小块数量
         number_of_total_patches = []
         for s in features.shape[-2:]:
             n_patches = (
                 s + 2 * padding - 1 * (self.patchsize - 1) - 1
             ) / self.stride + 1
             number_of_total_patches.append(int(n_patches))
+
+        # 调整张量形状（顺序）
         unfolded_features = unfolded_features.reshape(
             *features.shape[:2], self.patchsize, self.patchsize, -1
         )
@@ -705,17 +789,21 @@ class PatchMaker:
             return unfolded_features, number_of_total_patches
         return unfolded_features
 
+    # 把评分的小块拼接回去
     def unpatch_scores(self, x, batchsize):
         return x.reshape(batchsize, -1, *x.shape[1:])
+
 
     def score(self, x):
         was_numpy = False
         if isinstance(x, np.ndarray):
             was_numpy = True
             x = torch.from_numpy(x)
+        # 取最大值来降维
         while x.ndim > 2:
             x = torch.max(x, dim=-1).values
         if x.ndim == 2:
+            # 多个top_k求平均
             if self.top_k > 1:
                 x = torch.topk(x, self.top_k, dim=1).values.mean(1)
             else:

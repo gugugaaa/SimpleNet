@@ -48,6 +48,7 @@ def compute_pixelwise_retrieval_metrics(anomaly_segmentations, ground_truth_mask
     if isinstance(ground_truth_masks, list):
         ground_truth_masks = np.stack(ground_truth_masks)
 
+    # 展平像素便于比较
     flat_anomaly_segmentations = anomaly_segmentations.ravel()
     flat_ground_truth_masks = ground_truth_masks.ravel()
 
@@ -68,7 +69,9 @@ def compute_pixelwise_retrieval_metrics(anomaly_segmentations, ground_truth_mask
         where=(precision + recall) != 0,
     )
 
+    # 根据F1分数生成阈值
     optimal_threshold = thresholds[np.argmax(F1_scores)]
+    # 根据阈值做二值化
     predictions = (flat_anomaly_segmentations >= optimal_threshold).astype(int)
     fpr_optim = np.mean(predictions > flat_ground_truth_masks)
     fnr_optim = np.mean(predictions < flat_ground_truth_masks)
@@ -87,6 +90,7 @@ import pandas as pd
 from skimage import measure
 def compute_pro(masks, amaps, num_th=200):
 
+    # 参数 masks：真实；amaps：预测
     df = pd.DataFrame([], columns=["pro", "fpr", "threshold"])
     binary_amaps = np.zeros_like(amaps, dtype=np.bool)
 
@@ -95,17 +99,23 @@ def compute_pro(masks, amaps, num_th=200):
     delta = (max_th - min_th) / num_th
 
     k = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+
+    # 把打分的值域，划分成num_th个阈值
+    # 遍历每个阈值，对所有amaps生成二值化图
     for th in np.arange(min_th, max_th, delta):
         binary_amaps[amaps <= th] = 0
         binary_amaps[amaps > th] = 1
 
         pros = []
         for binary_amap, mask in zip(binary_amaps, masks):
+            # 膨胀操作
             binary_amap = cv2.dilate(binary_amap.astype(np.uint8), k)
+            # 遍历真实掩码中的区域
             for region in measure.regionprops(measure.label(mask)):
                 axes0_ids = region.coords[:, 0]
                 axes1_ids = region.coords[:, 1]
                 tp_pixels = binary_amap[axes0_ids, axes1_ids].sum()
+                # 计算被正确分类的像素比例
                 pros.append(tp_pixels / region.area)
 
         inverse_masks = 1 - masks
@@ -114,7 +124,7 @@ def compute_pro(masks, amaps, num_th=200):
 
         df = df.append({"pro": np.mean(pros), "fpr": fpr, "threshold": th}, ignore_index=True)
 
-    # Normalize FPR from 0 ~ 1 to 0 ~ 0.3
+    # 只保留false positive < 0.3的
     df = df[df["fpr"] < 0.3]
     df["fpr"] = df["fpr"] / df["fpr"].max()
 

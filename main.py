@@ -1,10 +1,3 @@
-# ------------------------------------------------------------------
-# SimpleNet: A Simple Network for Image Anomaly Detection and Localization (https://openaccess.thecvf.com/content/CVPR2023/papers/Liu_SimpleNet_A_Simple_Network_for_Image_Anomaly_Detection_and_Localization_CVPR_2023_paper.pdf)
-# Github source: https://github.com/DonaldRR/SimpleNet
-# Licensed under the MIT License [see LICENSE for details]
-# The script is based on the code of PatchCore (https://github.com/amazon-science/patchcore-inspection)
-# ------------------------------------------------------------------
-
 import logging
 import os
 import sys
@@ -39,7 +32,7 @@ _DATASETS = {
 def main(**kwargs):
     pass
 
-
+# 主逻辑
 @main.result_callback()
 def run(
     methods,
@@ -52,8 +45,10 @@ def run(
     test,
     save_segmentation_images
 ):
+    # 接受methods：是dataset()和net()返回的字典
     methods = {key: item for (key, item) in methods}
 
+    # 创建保存路径
     run_save_path = utils.create_storage_folder(
         results_path, log_project, log_group, run_name, mode="overwrite"
     )
@@ -64,6 +59,8 @@ def run(
     device = utils.set_torch_device(gpu)
 
     result_collect = []
+
+    # 遍历所有数据加载器
     for dataloader_count, dataloaders in enumerate(list_of_dataloaders):
         LOGGER.info(
             "Evaluating dataset [{}] ({}/{})...".format(
@@ -82,6 +79,8 @@ def run(
 
         models_dir = os.path.join(run_save_path, "models")
         os.makedirs(models_dir, exist_ok=True)
+
+        # 初始化模型
         for i, SimpleNet in enumerate(simplenet_list):
             # torch.cuda.empty_cache()
             if SimpleNet.backbone.seed is not None:
@@ -93,12 +92,14 @@ def run(
 
             SimpleNet.set_model_dir(os.path.join(models_dir, f"{i}"), dataset_name)
             if not test:
+                # 训练模型
                 i_auroc, p_auroc, pro_auroc = SimpleNet.train(dataloaders["training"], dataloaders["testing"])
             else:
                 # BUG: the following line is not using. Set test with True by default.
                 # i_auroc, p_auroc, pro_auroc =  SimpleNet.test(dataloaders["training"], dataloaders["testing"], save_segmentation_images)
                 print("Warning: Pls set test with true by default")
 
+            # 收集评测指标
             result_collect.append(
                 {
                     "dataset_name": dataset_name,
@@ -114,7 +115,7 @@ def run(
 
         LOGGER.info("\n\n-----\n")
 
-    # Store all results and mean scores to a csv-file.
+    # 保存结果和csv
     result_metric_names = list(result_collect[-1].keys())[1:]
     result_dataset_names = [results["dataset_name"] for results in result_collect]
     result_scores = [list(results.values())[1:] for results in result_collect]
@@ -125,7 +126,7 @@ def run(
         row_names=result_dataset_names,
     )
 
-
+# 加载模型
 @main.command("net")
 @click.option("--backbone_names", "-b", type=str, multiple=True, default=[])
 @click.option("--layers_to_extract_from", "-le", type=str, multiple=True, default=[])
@@ -170,8 +171,10 @@ def net(
     mix_noise,
 ):
     backbone_names = list(backbone_names)
+    # 支持多个主干网络
     if len(backbone_names) > 1:
         layers_to_extract_from_coll = [[] for _ in range(len(backbone_names))]
+        # 确定需要提取的层
         for layer in layers_to_extract_from:
             idx = int(layer.split(".")[0])
             layer = ".".join(layer.split(".")[1:])
@@ -179,6 +182,7 @@ def net(
     else:
         layers_to_extract_from_coll = [layers_to_extract_from]
 
+    # 实例化SimpleNet
     def get_simplenet(input_shape, device):
         simplenets = []
         for backbone_name, layers_to_extract_from in zip(
@@ -222,7 +226,7 @@ def net(
 
     return ("get_simplenet", get_simplenet)
 
-
+# 加载数据集
 @main.command("dataset")
 @click.argument("name", type=str)
 @click.argument("data_path", type=click.Path(exists=True, file_okay=False))
@@ -267,7 +271,9 @@ def dataset(
 
     def get_dataloaders(seed):
         dataloaders = []
+        # 遍历所有子数据集
         for subdataset in subdatasets:
+            # 导入数据集和划分
             train_dataset = dataset_library.__dict__[dataset_info[1]](
                 data_path,
                 classname=subdataset,
@@ -299,6 +305,7 @@ def dataset(
             
             LOGGER.info(f"Dataset: train={len(train_dataset)} test={len(test_dataset)}")
 
+            # 数据加载器
             train_dataloader = torch.utils.data.DataLoader(
                 train_dataset,
                 batch_size=batch_size,

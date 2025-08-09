@@ -69,3 +69,34 @@ Thanks for great inspiration from [PatchCore](https://github.com/amazon-science/
 ## License
 
 All code within the repo is under [MIT license](https://mit-license.org/)
+
+# 以下是我补充的内容
+
+## 训练
+### 预期输入
+
+目录结构
+`mvtec/<class>/train`
+
+命令
+`net/dataset`两个子命令
+
+### 预期输出
+```c
+results/
+└─ project/group/run_name/
+   ├─ models/
+   │  └─ 0/
+   │     ├─ ckpt.pth          # 判别器+投影层权重
+   │     └─ params.pkl        # patch 大小、通道数等超参
+   ├─ tensorboard/            # 训练曲线
+   └─ results.csv             # AUROC 汇总
+```
+
+## 推理
+
+```python
+score, mask = net.predict(img)
+net.load_from_path('./results/.../models/0') 
+```
+

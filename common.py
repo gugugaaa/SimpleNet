@@ -6,7 +6,7 @@ import scipy.ndimage as ndimage
 import torch
 import torch.nn.functional as F
 
-
+# 基类：合并、concat特征
 class _BaseMerger:
     def __init__(self):
         """Merges feature embedding by name."""
@@ -17,9 +17,9 @@ class _BaseMerger:
 
 
 class AverageMerger(_BaseMerger):
+    # 把w×h压缩到1维（N×C×W×H -> N×C），通过取均值
     @staticmethod
     def _reduce(features):
-        # NxCxWxH -> NxC
         return features.reshape([features.shape[0], features.shape[1], -1]).mean(
             axis=-1
         )
@@ -28,11 +28,13 @@ class AverageMerger(_BaseMerger):
 class ConcatMerger(_BaseMerger):
     @staticmethod
     def _reduce(features):
-        # NxCxWxH -> NxCWH
+        # NxCxWxH -> (N, C×W×H)（二维）
         return features.reshape(len(features), -1)
 
 
 class Preprocessing(torch.nn.Module):
+    # 把每个输入特征都进行mean mapper处理
+    # 因此变成统一的维度
     def __init__(self, input_dims, output_dim):
         super(Preprocessing, self).__init__()
         self.input_dims = input_dims
@@ -40,6 +42,7 @@ class Preprocessing(torch.nn.Module):
 
         self.preprocessing_modules = torch.nn.ModuleList()
         for input_dim in input_dims:
+            # 每个mean mapper模块对应一个输入维度
             module = MeanMapper(output_dim)
             self.preprocessing_modules.append(module)
 
@@ -49,17 +52,19 @@ class Preprocessing(torch.nn.Module):
             _features.append(module(feature))
         return torch.stack(_features, dim=1)
 
-
+# 池化单个特征向量  (N, C) 👉 (N, output_dim)
 class MeanMapper(torch.nn.Module):
     def __init__(self, preprocessing_dim):
         super(MeanMapper, self).__init__()
         self.preprocessing_dim = preprocessing_dim
 
     def forward(self, features):
+        # 先变成N×1×C
         features = features.reshape(len(features), 1, -1)
+        # 把特征池化到指定维度
         return F.adaptive_avg_pool1d(features, self.preprocessing_dim).squeeze(1)
 
-
+# 聚合所有特征向量  (N, num_layers × C) 👉 (N, target_dim)
 class Aggregator(torch.nn.Module):
     def __init__(self, target_dim):
         super(Aggregator, self).__init__()
@@ -69,6 +74,7 @@ class Aggregator(torch.nn.Module):
         """Returns reshaped and average pooled features."""
         # batchsize x number_of_layers x input_dim -> batchsize x target_dim
         features = features.reshape(len(features), 1, -1)
+        # 把特征池化到目标维度
         features = F.adaptive_avg_pool1d(features, self.target_dim)
         return features.reshape(len(features), -1)
 
@@ -79,6 +85,7 @@ class RescaleSegmentor:
         self.target_size = target_size
         self.smoothing = 4
 
+    # 从分数转换到分割图
     def convert_to_segmentation(self, patch_scores, features):
 
         with torch.no_grad():
@@ -120,7 +127,7 @@ class RescaleSegmentor:
             for feature in features
         ]
 
-
+# 从骨干网络中，提取指定的层的特征图
 class NetworkFeatureAggregator(torch.nn.Module):
     """Efficient extraction of network features."""
 
@@ -139,16 +146,20 @@ class NetworkFeatureAggregator(torch.nn.Module):
         self.backbone = backbone
         self.device = device
         self.train_backbone = train_backbone
+        # 清理旧的钩子
         if not hasattr(backbone, "hook_handles"):
             self.backbone.hook_handles = []
         for handle in self.backbone.hook_handles:
             handle.remove()
         self.outputs = {}
 
+        # 找到要提取的层
         for extract_layer in layers_to_extract_from:
+            # 创建一个前向钩子实例
             forward_hook = ForwardHook(
                 self.outputs, extract_layer, layers_to_extract_from[-1]
             )
+            # 注册到对应的网络层，他会自动捕获输出
             if "." in extract_layer:
                 extract_block, extract_idx = extract_layer.split(".")
                 network_layer = backbone.__dict__["_modules"][extract_block]
@@ -171,17 +182,21 @@ class NetworkFeatureAggregator(torch.nn.Module):
         self.to(self.device)
 
     def forward(self, images, eval=True):
+        # 清理钩子缓存
         self.outputs.clear()
         if self.train_backbone and not eval:
             self.backbone(images)
         else:
+            # 只应该在评估模式下进行截断
             with torch.no_grad():
                 # The backbone will throw an Exception once it reached the last
                 # layer to compute features from. Computation will stop there.
                 try:
                     _ = self.backbone(images)
                 except LastLayerToExtractReachedException:
+                    # 如果到达最后一层，则提前停止
                     pass
+        # 由于在初始化注册了钩子，所以骨干网络前向传播时，会自动捕获输出到self.outputs
         return self.outputs
 
     def feature_dimensions(self, input_shape):
@@ -190,7 +205,7 @@ class NetworkFeatureAggregator(torch.nn.Module):
         _output = self(_input)
         return [_output[layer].shape[1] for layer in self.layers_to_extract_from]
 
-
+# 捕获指定层的特征图
 class ForwardHook:
     def __init__(self, hook_dict, layer_name: str, last_layer_to_extract: str):
         self.hook_dict = hook_dict
@@ -205,7 +220,7 @@ class ForwardHook:
         #     raise LastLayerToExtractReachedException()
         return None
 
-
+# 在最后一层停止
 class LastLayerToExtractReachedException(Exception):
     pass
 
