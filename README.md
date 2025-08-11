@@ -100,3 +100,77 @@ score, mask = net.predict(img)
 net.load_from_path('./results/.../models/0') 
 ```
 
+## 全部参数
+
+```mermaid
+flowchart TD
+    A[命令行参数] --> B[主要配置参数]
+    A --> C[模型相关参数]
+    A --> D[数据集相关参数]
+    A --> E[训练相关参数]
+    A --> F[优化器相关参数]
+    A --> G[数据增强参数]
+
+    subgraph 主要配置参数
+        B1[results_path<br/>结果保存路径]
+        B2[gpu<br/>GPU设备ID]
+        B3[seed<br/>随机种子]
+        B4[log_group<br/>日志组名]
+        B5[log_project<br/>项目日志名]
+        B6[run_name<br/>运行名称]
+        B7[test<br/>是否测试模式]
+        B8[save_segmentation_images<br/>是否保存分割图像]
+    end
+
+    subgraph 模型相关参数
+        C1[backbone_names<br/>主干网络名称]
+        C2[layers_to_extract_from<br/>提取层名称]
+        C3[pretrain_embed_dimension<br/>预训练嵌入维度]
+        C4[target_embed_dimension<br/>目标嵌入维度]
+        C5[patchsize<br/>图像块大小]
+        C6[embedding_size<br/>嵌入大小]
+        C7[pre_proj<br/>预投影层]
+        C8[proj_layer_type<br/>投影层类型]
+    end
+
+    subgraph 数据集相关参数
+        D1[name<br/>数据集名称]
+        D2[data_path<br/>数据路径]
+        D3[subdatasets<br/>子数据集列表]
+        D4[batch_size<br/>批次大小]
+        D5[resize<br/>调整图像大小]
+        D6[imagesize<br/>图像尺寸]
+        D7[num_workers<br/>数据加载工作线程数]
+    end
+
+    subgraph 训练相关参数
+        E1[meta_epochs<br/>元训练轮数]
+        E2[aed_meta_epochs<br/>AED元训练轮数]
+        E3[gan_epochs<br/>GAN训练轮数]
+        E4[noise_std<br/>噪声标准差]
+        E5[auto_noise<br/>自动噪声]
+        E6[mix_noise<br/>混合噪声]
+        E7[train_backbone<br/>是否训练主干网络]
+        E8[cos_lr<br/>是否使用余弦学习率]
+    end
+
+    subgraph 优化器相关参数
+        F1[dsc_layers<br/>判别器层数]
+        F2[dsc_hidden<br/>判别器隐藏层大小]
+        F3[dsc_margin<br/>判别器边界]
+        F4[dsc_lr<br/>判别器学习率]
+    end
+
+    subgraph 数据增强参数
+        G1[rotate_degrees<br/>旋转角度]
+        G2[translate<br/>平移比例]
+        G3[scale<br/>缩放比例]
+        G4[brightness<br/>亮度调整]
+        G5[contrast<br/>对比度调整]
+        G6[saturation<br/>饱和度调整]
+        G7[gray<br/>灰度概率]
+        G8[hflip<br/>水平翻转概率]
+        G9[vflip<br/>垂直翻转概率]
+        G10[augment<br/>是否启用数据增强]
+    end
+```
