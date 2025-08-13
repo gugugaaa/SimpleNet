@@ -387,7 +387,7 @@ class SimpleNet(torch.nn.Module):
     def train(self, training_data, test_data):
         state_dict = {}
         ckpt_path = os.path.join(self.ckpt_dir, "ckpt.pth")
-        # 加载预训练检查点
+        # 如果存在模型，那么不再训练，只做评估
         if os.path.exists(ckpt_path):
             state_dict = torch.load(ckpt_path, map_location=self.device)
             if 'discriminator' in state_dict:
@@ -411,6 +411,7 @@ class SimpleNet(torch.nn.Module):
                     k:v.detach().cpu() 
                     for k, v in self.pre_projection.state_dict().items()})
 
+        # 如果预先没有模型，那么正常训练和保存。
         best_auroc = None
         for i_mepoch in range(self.meta_epochs):
             self._train_discriminator(training_data)
@@ -430,7 +431,7 @@ class SimpleNet(torch.nn.Module):
         # 打开eval模式
         _ = self.forward_modules.eval()
         
-        # 投影网络
+        # 如果有投影网络，也训练
         if self.pre_proj > 0:
             self.pre_projection.train()
         self.discriminator.train()
@@ -448,6 +449,7 @@ class SimpleNet(torch.nn.Module):
                 embeddings_list = []
                 # 遍历输入数据
                 for data_item in input_data:
+                    # 清零优化器梯度
                     self.dsc_opt.zero_grad()
                     if self.pre_proj > 0:
                         self.proj_opt.zero_grad()
@@ -456,42 +458,56 @@ class SimpleNet(torch.nn.Module):
                     i_iter += 1
                     img = data_item["image"]
                     img = img.to(torch.float).to(self.device)
+                    # 用embed方法从骨干网络提取特征，可选经过预投影
+                    # 得到真实特征 true_feats [N, C]
                     if self.pre_proj > 0:
                         true_feats = self.pre_projection(self._embed(img, evaluation=False)[0])
                     else:
                         true_feats = self._embed(img, evaluation=False)[0]
                     
                     # 生成噪声
+                    # 每条特征向量抽一个噪声特征（强度和分布）
                     noise_idxs = torch.randint(0, self.mix_noise, torch.Size([true_feats.shape[0]]))
+                    # 每条特征向量选中的那个噪声为1，其余为0
                     noise_one_hot = torch.nn.functional.one_hot(noise_idxs, num_classes=self.mix_noise).to(self.device) # (N, K)
+                    # 构造完整的噪声 [N, K, C]
                     noise = torch.stack([
                         torch.normal(0, self.noise_std * 1.1**(k), true_feats.shape)
                         for k in range(self.mix_noise)], dim=1).to(self.device) # (N, K, C)
+                    # 选择对应的噪声
                     noise = (noise * noise_one_hot.unsqueeze(-1)).sum(1)
 
                     # 添加到真实特征上
                     fake_feats = true_feats + noise
 
-                    # 判别器给出得分
+                    # 把真实特征和伪造特征拼接（N+N=2N），都是送入判别器
                     scores = self.discriminator(torch.cat([true_feats, fake_feats]))
+
+                    # 判别器给出得分的数组：前N个评分是对于输入的真实特征的评分
+                    # 评分越高，越认为是真实特征
                     true_scores = scores[:len(true_feats)]
                     fake_scores = scores[len(fake_feats):]
                     
                     # 计算损失
                     th = self.dsc_margin
+                    # 监控判断正确/错误的比例
                     p_true = (true_scores.detach() >= th).sum() / len(true_scores)
                     p_fake = (fake_scores.detach() < -th).sum() / len(fake_scores)
+                    # 真实特征损失
                     true_loss = torch.clip(-true_scores + th, min=0)
+                    # 伪造特征损失
                     fake_loss = torch.clip(fake_scores + th, min=0)
 
                     self.logger.logger.add_scalar(f"p_true", p_true, self.logger.g_iter)
                     self.logger.logger.add_scalar(f"p_fake", p_fake, self.logger.g_iter)
 
+                    # 判别器损失=真实特征损失的平均+伪造特征损失的平均
                     loss = true_loss.mean() + fake_loss.mean()
                     self.logger.logger.add_scalar("loss", loss, self.logger.g_iter)
                     self.logger.step()
 
                     # 反向传播
+                    # opt.step()的意思是让优化器更新一次他所管理的模型
                     loss.backward()
                     if self.pre_proj > 0:
                         self.proj_opt.step()
@@ -527,7 +543,7 @@ class SimpleNet(torch.nn.Module):
 
 
     def predict(self, data, prefix=""):
-        # 区分是加载器还是单张图片
+        # 入口，区分是加载器还是单张图片，调用不同的预测方法
         if isinstance(data, torch.utils.data.DataLoader):
             return self._predict_dataloader(data, prefix)
         return self._predict(data)
@@ -535,8 +551,8 @@ class SimpleNet(torch.nn.Module):
     # 处理数据加载器
     def _predict_dataloader(self, dataloader, prefix):
         """This function provides anomaly scores/maps for full dataloaders."""
+        # 关闭梯度计算
         _ = self.forward_modules.eval()
-
 
         img_paths = []
         scores = []
@@ -561,7 +577,6 @@ class SimpleNet(torch.nn.Module):
                 for score, mask, feat, is_anomaly in zip(_scores, _masks, _feats, data["is_anomaly"].numpy().tolist()):
                     scores.append(score)
                     masks.append(mask)
-                    features.append(feat)
 
         return scores, masks, features, labels_gt, masks_gt
 

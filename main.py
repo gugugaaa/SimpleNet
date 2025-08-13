@@ -270,6 +270,7 @@ def dataset(
         # 遍历所有子数据集
         for subdataset in subdatasets:
             # 导入数据集和划分
+            # 设置为TRAIN就只会加载/classname/train
             train_dataset = dataset_library.__dict__[dataset_info[1]](
                 data_path,
                 classname=subdataset,

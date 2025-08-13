@@ -1,2 +1,3 @@
-__pycache__/*
+__pycache__/
 fake_kaggle_working/
+.venv
