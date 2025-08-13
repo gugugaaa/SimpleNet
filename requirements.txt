@@ -2,3 +2,7 @@ torch
 torchvision
 opencv-python
 tqdm
+timm
+scikit-image
+scikit-learn
+click
