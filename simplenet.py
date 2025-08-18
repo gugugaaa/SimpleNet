@@ -318,13 +318,16 @@ class SimpleNet(torch.nn.Module):
     def test(self, training_data, test_data, save_segmentation_images):
         
         # 加载模型
-        ckpt_path = os.path.join(self.ckpt_dir, "models.ckpt")
+        ckpt_path = os.path.join(self.ckpt_dir, "ckpt.pth")
         if os.path.exists(ckpt_path):
             state_dicts = torch.load(ckpt_path, map_location=self.device)
-            if "pretrained_enc" in state_dicts:
-                self.feature_enc.load_state_dict(state_dicts["pretrained_enc"])
-            if "pretrained_dec" in state_dicts:
-                self.feature_dec.load_state_dict(state_dicts["pretrained_dec"])
+            if "discriminator" in state_dicts:
+                self.discriminator.load_state_dict(state_dicts["discriminator"])
+            if "pre_projection" in state_dicts and hasattr(self, "pre_projection"):
+                self.pre_projection.load_state_dict(state_dicts["pre_projection"])
+            if "backbone" in state_dicts:
+                # 恢复骨干网络（若曾参与训练）
+                self.forward_modules["feature_aggregator"].backbone.load_state_dict(state_dicts["backbone"])            
 
         # 初始化特征提取器
         aggregator = {"scores": [], "segmentations": [], "features": []}
@@ -384,7 +387,7 @@ class SimpleNet(torch.nn.Module):
         return auroc
         
     
-    def train(self, training_data, test_data):
+    def fit(self, training_data, test_data):
         state_dict = {}
         ckpt_path = os.path.join(self.ckpt_dir, "ckpt.pth")
         # 如果存在模型，那么不再训练，只做评估
@@ -392,8 +395,10 @@ class SimpleNet(torch.nn.Module):
             state_dict = torch.load(ckpt_path, map_location=self.device)
             if 'discriminator' in state_dict:
                 self.discriminator.load_state_dict(state_dict['discriminator'])
-                if "pre_projection" in state_dict:
+                if "pre_projection" in state_dict and hasattr(self, "pre_projection"):
                     self.pre_projection.load_state_dict(state_dict["pre_projection"])
+                if "backbone" in state_dict:
+                    self.forward_modules["feature_aggregator"].backbone.load_state_dict(state_dict["backbone"])            
             else:
                 self.load_state_dict(state_dict, strict=False)
 
@@ -410,6 +415,11 @@ class SimpleNet(torch.nn.Module):
                 state_dict["pre_projection"] = OrderedDict({
                     k:v.detach().cpu() 
                     for k, v in self.pre_projection.state_dict().items()})
+            if self.train_backbone:
+                # 保存骨干网络的权重（若参与训练）
+                state_dict["backbone"] = OrderedDict({
+                    k:v.detach().cpu()
+                    for k, v in self.forward_modules["feature_aggregator"].backbone.state_dict().items()})
 
         # 如果预先没有模型，那么正常训练和保存。
         best_auroc = None
@@ -578,9 +588,12 @@ class SimpleNet(torch.nn.Module):
                     scores.append(score)
                     masks.append(mask)
 
+        # 这里的mask对应的是预测结果，而不是ground truth mask，其实写成segmentations更好理解
+        # 后面都是当作segmentations读出来的
+        # 想要绘制的画，直接plt就可以保存，不需要用utils
         return scores, masks, features, labels_gt, masks_gt
 
-    # 处理单张图像
+    # 处理一个batch的图片
     def _predict(self, images):
         """Infer score and mask for a batch of images."""
         images = images.to(torch.float).to(self.device)
@@ -602,7 +615,7 @@ class SimpleNet(torch.nn.Module):
             # features = features.cpu().numpy()
             # features = np.ascontiguousarray(features.cpu().numpy())
             
-            # 异常评分
+            # 判别器输出的是各个patch的得分
             patch_scores = image_scores = -self.discriminator(features)
             patch_scores = patch_scores.cpu().numpy()
             image_scores = image_scores.cpu().numpy()
@@ -614,7 +627,7 @@ class SimpleNet(torch.nn.Module):
             image_scores = image_scores.reshape(*image_scores.shape[:2], -1)
             image_scores = self.patch_maker.score(image_scores)
 
-            # 像素级分数
+            # 各个Patch的分数（用于制作异常热力图）
             patch_scores = self.patch_maker.unpatch_scores(
                 patch_scores, batchsize=batchsize
             )

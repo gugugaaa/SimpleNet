@@ -93,7 +93,7 @@ def run(
             SimpleNet.set_model_dir(os.path.join(models_dir, f"{i}"), dataset_name)
             if not test:
                 # 训练模型
-                i_auroc = SimpleNet.train(dataloaders["training"], dataloaders["testing"])
+                i_auroc = SimpleNet.fit(dataloaders["training"], dataloaders["testing"])
             else:
                 print("Warning: Pls set test with true by default")
 
