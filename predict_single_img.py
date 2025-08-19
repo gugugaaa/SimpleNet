@@ -20,7 +20,6 @@ transform = T.Compose([
 遍历调用net._predict(期望的输入是 tensor，且 shape 为 [B, C, H, W])
     输出是list(image_scores), list(masks), list(features)
     遍历返回的masks，渲染成灰度热力图{原图名}_{img_score}.png
-    对于img score大于0.5的，保存到{img_dir}/run/good/，否则是bad/
 """
 
 import os
@@ -30,15 +29,16 @@ from PIL import Image
 import numpy as np
 import re
 import matplotlib.pyplot as plt
+import shutil
 
 from simplenet import SimpleNet
 import backbones
 
 # ----------- 配置 -----------
-img_dir = "results/predict/img"
-shellfile_path = "my_scripts/01v_resnet18_class_10.sh"
-ckpt_path = "results/train/01/c10_ckpt.pth"
-output_dir = "results/predict/run/01/"
+img_dir = "results/predict/img/rgb"
+shellfile_path = "my_scripts/02v_wideresnet50_class_all.sh"
+ckpt_path = "results/train/02/c10_ckpt.pth"
+output_dir = "results/predict/run/02/"
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 batch_size = 4
@@ -100,6 +100,12 @@ transform = T.Compose([
     T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 ])
 
+# 用于原图与热力图的叠加
+post_transform = T.Compose([
+    T.Resize(resize),
+    T.CenterCrop(imagesize),
+])
+
 # ----------- 加载模型 -----------
 backbone = backbones.load(params["backbone"])
 net = SimpleNet(device)
@@ -120,7 +126,12 @@ net.to(device)
 net.load_state_dict(torch.load(ckpt_path, map_location=device), strict=False)
 
 # ----------- 推理并保存 -----------
-os.makedirs(os.path.join(output_dir, "run"), exist_ok=True)
+
+# 清空output_dir/run文件夹
+run_dir = os.path.join(output_dir, "run")
+if os.path.exists(run_dir):
+    shutil.rmtree(run_dir)
+os.makedirs(run_dir, exist_ok=True)
 
 img_paths = [os.path.join(img_dir, f) for f in os.listdir(img_dir) if f.lower().endswith((".jpg", ".png", ".jpeg"))]
 for i in range(0, len(img_paths), batch_size):
@@ -143,20 +154,54 @@ for i in range(0, len(img_paths), batch_size):
                 mask = mask.cpu().numpy()
             mask_img = (mask * 255).astype(np.uint8)
         # 绘制并保存plt
-        plt.figure(figsize=(8, 4))
+        plt.figure(figsize=(8, 8))
         plt.suptitle(f"{base}  score={img_score:.3f}", fontsize=14)
-        # 左：原图
-        plt.subplot(1, 2, 1)
+        # 左上：原图
+        plt.subplot(2, 2, 1)
         plt.imshow(orig_img)
         plt.title("Original")
         plt.axis("off")
-        # 右：热力图
-        plt.subplot(1, 2, 2)
+        # 右上：热力图
+        plt.subplot(2, 2, 2)
         if mask_img is not None:
             plt.imshow(mask_img, cmap="jet")
         else:
             plt.imshow(np.zeros((imagesize, imagesize)), cmap="gray")
         plt.title("Anomaly Map")
+        plt.axis("off")
+        # 左下：depth热力图
+        plt.subplot(2, 2, 3)
+        depth_path = os.path.join("results/predict/img/depth", f"{base}_depth.npy")
+        if os.path.exists(depth_path):
+            depth_map = np.load(depth_path)
+            # 若尺寸不符，resize到imagesize
+            if depth_map.shape != (imagesize, imagesize):
+                from skimage.transform import resize as sk_resize
+                depth_map = sk_resize(depth_map, (imagesize, imagesize), preserve_range=True, anti_aliasing=True)
+            plt.imshow(depth_map, cmap="jet")
+            plt.title("Depth Map")
+        else:
+            plt.imshow(np.zeros((imagesize, imagesize)), cmap="gray")
+            plt.title("Depth Map (None)")
+        plt.axis("off")
+        # 右下：融合热力图
+        plt.subplot(2, 2, 4)
+        if mask_img is not None:
+            # 对原图做post_transform
+            orig_img_resized = post_transform(orig_img)
+            orig_img_np = np.array(orig_img_resized).astype(np.float32) / 255.0
+            mask_img_norm = mask_img.astype(np.float32) / 255.0
+            if mask_img_norm.ndim == 2:
+                mask_img_norm = np.expand_dims(mask_img_norm, axis=2)
+            mask_img_color = plt.get_cmap("jet")(mask_img_norm.squeeze())[:, :, :3]
+            mask_img_color = mask_img_color[..., :3]
+            # 融合
+            fused = orig_img_np * 0.5 + mask_img_color * 0.5
+            fused = np.clip(fused, 0, 1)
+            plt.imshow(fused)
+        else:
+            plt.imshow(np.zeros((imagesize, imagesize, 3)))
+        plt.title("Overlay")
         plt.axis("off")
         plt.tight_layout(rect=[0, 0, 1, 0.93])
         plt.savefig(os.path.join(output_dir, "run", f"{base}_{img_score:.3f}_plt.png"))

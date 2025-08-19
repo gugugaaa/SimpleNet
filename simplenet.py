@@ -134,6 +134,7 @@ class SimpleNet(torch.nn.Module):
         lr=1e-3,
         pre_proj=0, # 1
         proj_layer_type=0,
+        save_frequency=0,
         **kwargs,
     ):
         pid = os.getpid()
@@ -192,6 +193,7 @@ class SimpleNet(torch.nn.Module):
         self.lr = lr
         self.cos_lr = cos_lr
         self.train_backbone = train_backbone
+        self.save_frequency = save_frequency
         # adamw优化器
         if self.train_backbone:
             self.backbone_opt = torch.optim.AdamW(self.forward_modules["feature_aggregator"].backbone.parameters(), lr)
@@ -640,6 +642,7 @@ class SimpleNet(torch.nn.Module):
             # features = np.ascontiguousarray(features.cpu().numpy())
             
             # 判别器输出的是各个patch的得分
+            # 负号：predict结果越高，表示异常程度越高
             patch_scores = image_scores = -self.discriminator(features)
             patch_scores = patch_scores.cpu().numpy()
             image_scores = image_scores.cpu().numpy()
@@ -770,7 +773,7 @@ class PatchMaker:
     def unpatch_scores(self, x, batchsize):
         return x.reshape(batchsize, -1, *x.shape[1:])
 
-
+    # 求图像级异常分数
     def score(self, x):
         was_numpy = False
         if isinstance(x, np.ndarray):
