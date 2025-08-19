@@ -93,7 +93,7 @@ def run(
             SimpleNet.set_model_dir(os.path.join(models_dir, f"{i}"), dataset_name)
             if not test:
                 # 训练模型
-                i_auroc = SimpleNet.fit(dataloaders["training"], dataloaders["testing"])
+                i_auroc = SimpleNet.fit(dataloaders["training"], dataloaders["testing"], save_frequency=SimpleNet.save_frequency)
             else:
                 print("Warning: Pls set test with true by default")
 
@@ -218,9 +218,9 @@ def net(
                 pre_proj=pre_proj,
                 proj_layer_type=proj_layer_type,
                 mix_noise=mix_noise,
+                save_frequency=save_frequency, 
             )
-            # 新增：保存save_frequency参数到实例
-            simplenet_inst.save_frequency = save_frequency
+            # 新增：加载save_frequency参数
             simplenets.append(simplenet_inst)
         return simplenets
 

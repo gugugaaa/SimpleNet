@@ -14,7 +14,7 @@ python3 main.py \
   --log_group simplenet_insplad \
   --log_project InsPLAD_Results \
   --results_path results \
-  --run_name run \
+  --run_name 02v_wideresnet50_class_all \
   net \
   -b wideresnet50 \
   -le layer2 \

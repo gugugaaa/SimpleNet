@@ -4,7 +4,7 @@
 # proj: 表示启用了常规的投影网络 (--pre_proj 1)
 # gauss: 表示使用了高斯噪声 (--noise_std 0.015)
 
-datapath=/path/to/insplad
+datapath=/kaggle/working/insplad
 datasets=('polymer-insulator-lower-shackle')
 dataset_flags=($(for dataset in "${datasets[@]}"; do echo '-d '"${dataset}"; done))
 
@@ -14,7 +14,7 @@ python3 main.py \
 --log_group simplenet_insplad \
 --log_project INSPLAD_Results \
 --results_path results \
---run_name 01v_resnet18_class_10 \
+--run_name 03t_resnet18_class_10 \
 net \
 -b resnet18 \
 -le layer2 \
@@ -30,6 +30,7 @@ net \
 --dsc_layers 2 \
 --dsc_margin .5 \
 --pre_proj 1 \
+--save_frequency 2 \
 dataset \
 --batch_size 16 \
 --resize 329 \
