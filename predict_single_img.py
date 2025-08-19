@@ -24,7 +24,6 @@ transform = T.Compose([
 """
 
 import os
-import sys
 import torch
 import torchvision.transforms as T
 from PIL import Image
@@ -36,9 +35,10 @@ from simplenet import SimpleNet
 import backbones
 
 # ----------- 配置 -----------
-img_dir = "results/predict/01/img"           # 要推理的图片文件夹
-shellfile_path = "my_scripts/01v_resnet18_class10.sh"   # 训练用的sh脚本
-ckpt_path = "results/train/01/ckpt.pth"        # 训练好的模型权重
+img_dir = "results/predict/img"
+shellfile_path = "my_scripts/01v_resnet18_class_10.sh"
+ckpt_path = "results/train/01/c10_ckpt.pth"
+output_dir = "results/predict/run/01/"
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 batch_size = 4
@@ -120,7 +120,7 @@ net.to(device)
 net.load_state_dict(torch.load(ckpt_path, map_location=device), strict=False)
 
 # ----------- 推理并保存 -----------
-os.makedirs(os.path.join(img_dir, "run"), exist_ok=True)
+os.makedirs(os.path.join(output_dir, "run"), exist_ok=True)
 
 img_paths = [os.path.join(img_dir, f) for f in os.listdir(img_dir) if f.lower().endswith((".jpg", ".png", ".jpeg"))]
 for i in range(0, len(img_paths), batch_size):
@@ -159,5 +159,5 @@ for i in range(0, len(img_paths), batch_size):
         plt.title("Anomaly Map")
         plt.axis("off")
         plt.tight_layout(rect=[0, 0, 1, 0.93])
-        plt.savefig(os.path.join(img_dir, "run", f"{base}_{img_score:.3f}_plt.png"))
+        plt.savefig(os.path.join(output_dir, "run", f"{base}_{img_score:.3f}_plt.png"))
         plt.close()

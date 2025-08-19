@@ -144,6 +144,7 @@ def run(
 @click.option("--pre_proj", type=int, default=0)
 @click.option("--proj_layer_type", type=int, default=0)
 @click.option("--mix_noise", type=int, default=1)
+@click.option("--save_frequency", type=int, default=0, show_default=True)
 def net(
     backbone_names,
     layers_to_extract_from,
@@ -165,6 +166,7 @@ def net(
     pre_proj,
     proj_layer_type,
     mix_noise,
+    save_frequency,
 ):
     backbone_names = list(backbone_names)
     # 支持多个主干网络
@@ -217,6 +219,8 @@ def net(
                 proj_layer_type=proj_layer_type,
                 mix_noise=mix_noise,
             )
+            # 新增：保存save_frequency参数到实例
+            simplenet_inst.save_frequency = save_frequency
             simplenets.append(simplenet_inst)
         return simplenets
 

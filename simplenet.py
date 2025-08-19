@@ -387,7 +387,7 @@ class SimpleNet(torch.nn.Module):
         return auroc
         
     
-    def fit(self, training_data, test_data):
+    def fit(self, training_data, test_data, save_frequency=0):
         state_dict = {}
         ckpt_path = os.path.join(self.ckpt_dir, "ckpt.pth")
         # 如果存在模型，那么不再训练，只做评估
@@ -428,11 +428,35 @@ class SimpleNet(torch.nn.Module):
             scores, segmentations, features, labels_gt, masks_gt = self.predict(test_data)
             auroc = self._evaluate(test_data, scores, segmentations, features, labels_gt, masks_gt)
             self.logger.logger.add_scalar("i-auroc", auroc, i_mepoch)
+            save_ckpt = False
             if best_auroc is None or auroc > best_auroc:
                 best_auroc = auroc
                 update_state_dict(state_dict)
+                save_ckpt = True
+            # 新增：根据save_frequency保存
+            if save_frequency > 0 and (i_mepoch + 1) % save_frequency == 0:
+                # 保存当前epoch的模型
+                tmp_ckpt_path = os.path.join(self.ckpt_dir, f"ckpt_epoch_{i_mepoch+1}.pth")
+                tmp_state_dict = {}
+                tmp_state_dict["discriminator"] = OrderedDict({
+                    k:v.detach().cpu() 
+                    for k, v in self.discriminator.state_dict().items()})
+                if self.pre_proj > 0:
+                    tmp_state_dict["pre_projection"] = OrderedDict({
+                        k:v.detach().cpu() 
+                        for k, v in self.pre_projection.state_dict().items()})
+                if self.train_backbone:
+                    tmp_state_dict["backbone"] = OrderedDict({
+                        k:v.detach().cpu()
+                        for k, v in self.forward_modules["feature_aggregator"].backbone.state_dict().items()})
+                torch.save(tmp_state_dict, tmp_ckpt_path)
+                save_ckpt = False # 防止重复保存
+            if save_ckpt:
+                torch.save(state_dict, ckpt_path)
             print(f"----- {i_mepoch} I-AUROC:{round(auroc, 4)}(MAX:{round(best_auroc, 4)}) -----")
-        torch.save(state_dict, ckpt_path)
+        # 只保存best
+        if save_frequency == 0:
+            torch.save(state_dict, ckpt_path)
         return best_auroc
             
     # 训练判别器 细节
