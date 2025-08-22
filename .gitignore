@@ -1,4 +1,4 @@
 __pycache__/
-fake_kaggle_working/
 .venv
 results/
+.old/

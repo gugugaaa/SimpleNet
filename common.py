@@ -128,6 +128,7 @@ class RescaleSegmentor:
         ]
 
 # 从骨干网络中，提取指定的层的特征图
+# 目前只支持一级下标，例如blocks.1  √       blocks.1.conv  ×
 class NetworkFeatureAggregator(torch.nn.Module):
     """Efficient extraction of network features."""
 

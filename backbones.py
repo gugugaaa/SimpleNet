@@ -54,9 +54,11 @@ _BACKBONES = {
     "efficientnet_b1": 'timm.create_model("tf_efficientnet_b1", pretrained=True)',
     "efficientnetv2_m": 'timm.create_model("tf_efficientnetv2_m", pretrained=True)',
     "efficientnetv2_l": 'timm.create_model("tf_efficientnetv2_l", pretrained=True)',
+    "efficientnetv2_s": 'timm.create_model("tf_efficientnetv2_s", pretrained=True)',
     "efficientnet_b3a": 'timm.create_model("efficientnet_b3a", pretrained=True)',
 }
 
+  # 新增 efficientnetv2_s
 
 def load(name):
     return eval(_BACKBONES[name])

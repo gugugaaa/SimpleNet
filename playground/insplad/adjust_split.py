@@ -1,3 +1,11 @@
+"""
+从过剩的测试集里面，抽大部分给训练集
+（因为simple net训练时的evalute很耗时）
+
+选取最好的50张（宽高比符合预期输入的），保留为测试集，
+其余的全部给训练集
+"""
+
 import os
 import shutil
 from PIL import Image

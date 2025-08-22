@@ -22,7 +22,7 @@ transform = T.Compose([
     遍历返回的masks，渲染成灰度热力图{原图名}_{img_score}.png
 """
 
-import os
+import os, sys
 import torch
 import torchvision.transforms as T
 from PIL import Image
@@ -30,15 +30,15 @@ import numpy as np
 import re
 import matplotlib.pyplot as plt
 import shutil
-
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 from simplenet import SimpleNet
 import backbones
 
 # ----------- 配置 -----------
-img_dir = "results/predict/img/rgb"
-shellfile_path = "my_scripts/02v_wideresnet50_class_all.sh"
-ckpt_path = "results/train/02/c10_ckpt.pth"
-output_dir = "results/predict/run/02/"
+img_dir = "playground/visualize/results/predict/img/rgb"
+shellfile_path = "playground/my_scripts/02v_wideresnet50_class_all.sh"
+ckpt_path = "playground/visualize/results/train/02/c10_ckpt.pth"
+output_dir = "playground/visualize/results/predict/run/02/"
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 batch_size = 4

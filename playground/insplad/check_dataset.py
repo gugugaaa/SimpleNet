@@ -1,10 +1,15 @@
+"""
+计算这个数据集中，训练集和测试集的图像尺寸的分布
+
+下一步是adjust split来精简测试集
+"""
+
 import os
 from PIL import Image
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import font_manager
 
-# 设置中文支持（假设系统有SimHei字体；否则下载并指定路径）
 plt.rcParams['font.sans-serif'] = ['SimHei']  # 用于正常显示中文标签
 plt.rcParams['axes.unicode_minus'] = False    # 用于正常显示负号
 

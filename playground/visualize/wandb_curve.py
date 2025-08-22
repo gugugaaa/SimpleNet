@@ -1,3 +1,11 @@
+"""
+手动生成训练曲线
+
+把kaggle中model.fit()的输出复制到txt
+读取txt
+生成并保存图片
+"""
+
 import pandas as pd
 import re
 import matplotlib.pyplot as plt
@@ -113,8 +121,8 @@ def plot_metrics(df, save_dir=None):
 
 if __name__ == "__main__":
     # 设置文件路径变量
-    file_path = r"results\01\metric_timeline.txt"  # 修改为你的日志文件路径
-    
+    file_path = r"playground/visualize/results/01/metric_timeline.txt" 
+
     df = parse_data(file_path)
     save_dir = os.path.dirname(os.path.abspath(file_path))
     plot_metrics(df, save_dir=save_dir)

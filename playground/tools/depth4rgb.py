@@ -1,4 +1,6 @@
 """
+找到rgb对应的depth数据
+
 rgb图片路径rgb_path=results/predict/img/rgb，和depth数据集路径depth_path=E:/竞赛资料/暑假/电塔/数据集/depth_dataset
 遍历rgb图片rgb_image（不确定格式）
 找到{rgb_image}_depth.npy
@@ -9,9 +11,9 @@ rgb图片路径rgb_path=results/predict/img/rgb，和depth数据集路径depth_p
 import os
 import shutil
 
-rgb_path = 'results/predict/img/rgb'
+rgb_path = 'playground/visualize/results/predict/img/rgb'
 depth_path = 'E:/竞赛资料/暑假/电塔/数据集/depth_dataset'
-save_path = 'results/predict/img/depth'
+save_path = 'playground/visualize/results/predict/img/depth'
 
 if not os.path.exists(save_path):
     os.makedirs(save_path)
