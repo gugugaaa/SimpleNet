@@ -40,6 +40,18 @@ def eigen_cam_on_dir(img_dir, model_name='tf_efficientnetv2_m', target_layer_nam
     # 用字符串路径解析目标层
     target_layers = [resolve_layer(model, name) for name in target_layer_names]
 
+    # 保存图片到指定目录
+    save_dir = os.path.join(os.path.dirname(__file__), 'eigen_cam')
+    os.makedirs(save_dir, exist_ok=True)
+    # 清空保存目录
+    for f in os.listdir(save_dir):
+        fp = os.path.join(save_dir, f)
+        if os.path.isfile(fp):
+            os.remove(fp)
+
+    # 用于拼接大图
+    all_rows = []
+
     for img_file in os.listdir(img_dir):
         if not (img_file.endswith('.jpg') or img_file.endswith('.png')):
             continue
@@ -59,6 +71,9 @@ def eigen_cam_on_dir(img_dir, model_name='tf_efficientnetv2_m', target_layer_nam
         plt.title('Original Image')
         plt.axis('off')
 
+        # 用于拼接大图的本行
+        row_imgs = [rgb_img]
+
         for idx, (layer, layer_name) in enumerate(zip(target_layers, target_layer_names)):
             cam = EigenCAM(
                 model,
@@ -70,10 +85,30 @@ def eigen_cam_on_dir(img_dir, model_name='tf_efficientnetv2_m', target_layer_nam
             plt.imshow(vis)
             plt.title(f'{layer_name}')
             plt.axis('off')
+            # 添加到本行
+            row_imgs.append(vis.astype(np.float32) / 255.0 if vis.max() > 1.1 else vis)
 
         plt.suptitle(f'Image: {img_file} Eigen CAM')
-        plt.figtext(0.5, 0.1, f'Model: {model_name}', ha='center', fontsize=14)  # 新增：模型名显示在正下方
-        plt.show()
+        plt.figtext(0.5, 0.1, f'Model: {model_name}', ha='center', fontsize=14)  # 模型名显示在正下方
+
+        # 保存图片到指定目录，每次刷新
+        img_name = os.path.splitext(img_file)[0]
+        save_path = os.path.join(save_dir, f"{img_name}_cam.png")
+        plt.savefig(save_path, bbox_inches='tight')
+        plt.close()
+
+        # 拼接本行
+        all_rows.append(np.concatenate(row_imgs, axis=1))
+
+    # 保存大图
+    if all_rows:
+        big_img = np.concatenate(all_rows, axis=0)  # 多行拼接
+        plt.figure(figsize=(5 * (n_layers + 1), 5 * len(all_rows)))
+        plt.imshow(big_img)
+        plt.axis('off')
+        plt.title(f'{model_name}_eigen_cam')
+        big_img_path = os.path.join(save_dir, f"{model_name}_eigen_cam.png")
+        plt.savefig(big_img_path, bbox_inches='tight')
         plt.close()
 
 # 常用：[timm模型名, 推荐的目标层]：'resnet18'[layer2, layer3]   'wide_resnet50_2'[layer2, layer3]
@@ -81,5 +116,5 @@ def eigen_cam_on_dir(img_dir, model_name='tf_efficientnetv2_m', target_layer_nam
 
 # 使用示例
 eigen_cam_on_dir('playground/visualize/results/predict/img/rgb', 
-                 model_name='tf_efficientnetv2_m', 
-                 target_layer_names=['blocks.2', 'blocks.3', 'blocks.4', 'blocks.5'])
+                 model_name='wide_resnet50_2', 
+                 target_layer_names=['layer2', 'layer3'])
