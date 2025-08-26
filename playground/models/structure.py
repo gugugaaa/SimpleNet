@@ -26,7 +26,7 @@ from backbones import load
 
 # print(torch.hub.get_dir()) 
 
-model = load("efficientnetv2_s")  # 或 efficientnetv2_m, wideresnet50, resnet18
+model = load("efficientnetv2_m")  # 或 efficientnetv2_m, wideresnet50, resnet18
 model.eval()
 probe = torch.randn(1,3,224,224)
 

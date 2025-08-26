@@ -36,9 +36,9 @@ import backbones
 
 # ----------- 配置 -----------
 img_dir = "playground/visualize/results/predict/img/rgb"
-shellfile_path = "playground/my_scripts/02v_wideresnet50_class_all.sh"
-ckpt_path = "playground/visualize/results/train/02/c10_ckpt.pth"
-output_dir = "playground/visualize/results/predict/run/02/"
+shellfile_path = "playground/my_scripts/05v_efficientnetv2m_class_10.sh"
+ckpt_path = "playground/visualize/results/train/05/ckpt.pth"
+output_dir = "playground/visualize/results/predict/run/05/"
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 batch_size = 4
@@ -171,7 +171,7 @@ for i in range(0, len(img_paths), batch_size):
         plt.axis("off")
         # 左下：depth热力图
         plt.subplot(2, 2, 3)
-        depth_path = os.path.join("results/predict/img/depth", f"{base}_depth.npy")
+        depth_path = os.path.join("playground/visualize/results/predict/img/depth", f"{base}_depth.npy")
         if os.path.exists(depth_path):
             depth_map = np.load(depth_path)
             # 若尺寸不符，resize到imagesize
