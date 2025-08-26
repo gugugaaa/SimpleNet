@@ -36,9 +36,9 @@ import backbones
 
 # ----------- 配置 -----------
 img_dir = "playground/visualize/results/predict/img/rgb"
-shellfile_path = "playground/my_scripts/05v_efficientnetv2m_class_10.sh"
-ckpt_path = "playground/visualize/results/train/05/ckpt.pth"
-output_dir = "playground/visualize/results/predict/run/05/"
+shellfile_path = "playground/my_scripts/02v_wideresnet50_class_all.sh"
+ckpt_path = "playground/visualize/results/train/02/c10_ckpt.pth"
+output_dir = "playground/visualize/results/predict/run/02/"
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 batch_size = 4

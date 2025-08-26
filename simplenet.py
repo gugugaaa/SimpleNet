@@ -26,23 +26,20 @@ def init_weight(m):
 
 # 判别器网络
 class Discriminator(torch.nn.Module):
-    # 传入：输入维度、全连接层数、隐藏层维度（None时自动计算）
-    def __init__(self, in_planes, n_layers=1, hidden=None):
+    def __init__(self, in_planes, n_layers=3, hidden=2048, dropout=0.1):  # 增加层数和隐藏维度
         super(Discriminator, self).__init__()
 
-        _hidden = in_planes if hidden is None else hidden
+        _hidden = hidden if hidden is not None else in_planes
         self.body = torch.nn.Sequential()
-        # 循环构建中间层（self.body）
+        
         for i in range(n_layers-1):
-            # 控制IO维度
             _in = in_planes if i == 0 else _hidden
-            _hidden = int(_hidden // 1.5) if hidden is None else hidden
-            # 添加固定的模块
             self.body.add_module('block%d'%(i+1),
                                  torch.nn.Sequential(
                                      torch.nn.Linear(_in, _hidden),
                                      torch.nn.BatchNorm1d(_hidden),
-                                     torch.nn.LeakyReLU(0.2)
+                                     torch.nn.LeakyReLU(0.2),
+                                     torch.nn.Dropout(dropout)  # 添加dropout防止过拟合
                                  ))
         self.tail = torch.nn.Linear(_hidden, 1, bias=False)
         self.apply(init_weight)
