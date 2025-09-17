@@ -17,6 +17,7 @@ LOGGER = logging.getLogger(__name__)
 
 _DATASETS = {
     "mvtec": ["datasets.mvtec", "MVTecDataset"],
+    "insplad": ["datasets.mvtec", "InsPLADDataset"],  # 添加支持 InsPLADDataset
 }
 
 
@@ -145,6 +146,10 @@ def run(
 @click.option("--proj_layer_type", type=int, default=0)
 @click.option("--mix_noise", type=int, default=1)
 @click.option("--save_frequency", type=int, default=0, show_default=True)
+@click.option("--use_depth", is_flag=True, default=False, show_default=True)  # 新增：启用深度
+@click.option("--fg_noise_std", type=float, default=0.05, show_default=True)  # 新增：前景噪音强度
+@click.option("--bg_noise_std", type=float, default=0.01, show_default=True)  # 新增：背景噪音强度
+@click.option("--depth_threshold", type=float, default=0.5, show_default=True)  # 新增：深度阈值（0-1范围）
 def net(
     backbone_names,
     layers_to_extract_from,
@@ -167,6 +172,10 @@ def net(
     proj_layer_type,
     mix_noise,
     save_frequency,
+    use_depth,  # 新增
+    fg_noise_std,  # 新增
+    bg_noise_std,  # 新增
+    depth_threshold,  # 新增
 ):
     backbone_names = list(backbone_names)
     # 支持多个主干网络
@@ -219,6 +228,10 @@ def net(
                 proj_layer_type=proj_layer_type,
                 mix_noise=mix_noise,
                 save_frequency=save_frequency, 
+                use_depth=use_depth,  # 新增
+                fg_noise_std=fg_noise_std,  # 新增
+                bg_noise_std=bg_noise_std,  # 新增
+                depth_threshold=depth_threshold,  # 新增
             )
             # 新增：加载save_frequency参数
             simplenets.append(simplenet_inst)

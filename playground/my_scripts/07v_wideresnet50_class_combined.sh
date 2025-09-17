@@ -1,5 +1,5 @@
-datapath=/path/to/insplad
-datasets=('polymer-insulator-lower-shackle')
+datapath=/kaggle/working/insplad
+datasets=('class_combined')
 dataset_flags=($(for dataset in "${datasets[@]}"; do echo '-d '"${dataset}"; done))
 
 python3 main.py \
@@ -8,9 +8,9 @@ python3 main.py \
 --log_group simplenet_insplad \
 --log_project INSPLAD_Results \
 --results_path results \
---run_name 01v_resnet18_class_10 \
+--run_name 07v_wideresnet50_class_combined \
 net \
--b resnet18 \
+-b wideresnet50 \
 -le layer2 \
 -le layer3 \
 --pretrain_embed_dimension 1536 \
@@ -24,6 +24,11 @@ net \
 --dsc_layers 2 \
 --dsc_margin .5 \
 --pre_proj 1 \
+--save_frequency 2 \
+--use_depth \
+--fg_noise_std 0.05 \
+--bg_noise_std 0.01 \
+--depth_threshold 0.5 \
 dataset \
 --batch_size 16 \
 --resize 329 \

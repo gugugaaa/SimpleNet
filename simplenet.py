@@ -132,6 +132,10 @@ class SimpleNet(torch.nn.Module):
         pre_proj=0, # 1
         proj_layer_type=0,
         save_frequency=0,
+        use_depth=False,  # 新增：启用深度
+        fg_noise_std=0.05,  # 新增：前景噪音强度
+        bg_noise_std=0.01,  # 新增：背景噪音强度
+        depth_threshold=0.5,  # 新增：深度阈值（0-1范围）
         **kwargs,
     ):
         pid = os.getpid()
@@ -217,6 +221,12 @@ class SimpleNet(torch.nn.Module):
         self.dsc_schl = torch.optim.lr_scheduler.CosineAnnealingLR(self.dsc_opt, (meta_epochs - aed_meta_epochs) * gan_epochs, self.dsc_lr*.4)
         self.dsc_margin= dsc_margin 
 
+        # 新增：深度相关参数
+        self.use_depth = use_depth
+        self.fg_noise_std = fg_noise_std
+        self.bg_noise_std = bg_noise_std
+        self.depth_threshold = depth_threshold
+
         self.model_dir = ""
         self.dataset_name = ""
         self.tau = 1
@@ -248,7 +258,7 @@ class SimpleNet(torch.nn.Module):
         return self._embed(data)
 
     # 特征提取
-    def _embed(self, images, detach=True, provide_patch_shapes=False, evaluation=False):
+    def _embed(self, images, detach=True, provide_patch_shapes=False, evaluation=False, return_spatial=False):  # 新增 return_spatial 参数
         """Returns feature embeddings for images."""
 
         # B是批次大小batch
@@ -310,8 +320,24 @@ class SimpleNet(torch.nn.Module):
         features = self.forward_modules["preprocessing"](features) # pooling each feature to same channel and stack together
         features = self.forward_modules["preadapt_aggregator"](features) # further pooling        
 
+        # 新增：如果 return_spatial，返回空间形状 [B, H_p, W_p, C]
+        scales = patch_shapes[0]  # [H_p, W_p]
+        if return_spatial:
+            features = features.view(B, scales[0], scales[1], -1)  # [B, H_p, W_p, C]
 
-        return features, patch_shapes
+            # 如果有预投影，也在空间上应用
+            if self.pre_proj > 0:
+                features_flat = features.view(-1, self.target_embed_dimension)
+                features_flat = self.pre_projection(features_flat)
+                features = features_flat.view(B, scales[0], scales[1], -1)
+        else:
+            # 原逻辑：展平 [B*num_patches, C]
+            if self.pre_proj > 0:
+                features = self.pre_projection(features)
+
+        if provide_patch_shapes:
+            return features, patch_shapes
+        return features
 
     
     def test(self, training_data, test_data, save_segmentation_images):
@@ -491,27 +517,55 @@ class SimpleNet(torch.nn.Module):
                     i_iter += 1
                     img = data_item["image"]
                     img = img.to(torch.float).to(self.device)
-                    # 用embed方法从骨干网络提取特征，可选经过预投影
-                    # 得到真实特征 true_feats [N, C]
-                    if self.pre_proj > 0:
-                        true_feats = self.pre_projection(self._embed(img, evaluation=False)[0])
-                    else:
-                        true_feats = self._embed(img, evaluation=False)[0]
-                    
-                    # 生成噪声
-                    # 每条特征向量抽一个噪声特征（强度和分布）
-                    noise_idxs = torch.randint(0, self.mix_noise, torch.Size([true_feats.shape[0]]))
-                    # 每条特征向量选中的那个噪声为1，其余为0
-                    noise_one_hot = torch.nn.functional.one_hot(noise_idxs, num_classes=self.mix_noise).to(self.device) # (N, K)
-                    # 构造完整的噪声 [N, K, C]
-                    noise = torch.stack([
-                        torch.normal(0, self.noise_std * 1.1**(k), true_feats.shape)
-                        for k in range(self.mix_noise)], dim=1).to(self.device) # (N, K, C)
-                    # 选择对应的噪声
-                    noise = (noise * noise_one_hot.unsqueeze(-1)).sum(1)
+                    # 新增：如果启用深度，获取深度图
+                    if self.use_depth:
+                        depth = data_item["depth"].to(torch.float).to(self.device)  # [B, 1, H_img, W_img], 值域[0,1]
 
-                    # 添加到真实特征上
-                    fake_feats = true_feats + noise
+                    # 用embed方法从骨干网络提取特征，可选经过预投影
+                    # 新增：如果启用深度，使用空间特征
+                    if self.use_depth:
+                        features_spatial, patch_shapes = self._embed(img, evaluation=False, provide_patch_shapes=True, return_spatial=True)
+                        scales = patch_shapes[0]  # [H_p, W_p]
+
+                        # 生成前景掩膜（假设高值是前景）
+                        mask = (depth > self.depth_threshold).float()  # [B, 1, H_img, W_img]
+
+                        # 下采样掩膜到 patch 分辨率
+                        mask = F.interpolate(mask, size=(scales[0], scales[1]), mode='nearest')  # [B, 1, H_p, W_p]
+
+                        # 生成加权噪音（支持 mix_noise）
+                        noise_idxs = torch.randint(0, self.mix_noise, torch.Size([features_spatial.shape[0]]))
+                        noise_one_hot = torch.nn.functional.one_hot(noise_idxs, num_classes=self.mix_noise).to(self.device)  # (B, K)
+                        noise_fg = torch.stack([
+                            torch.normal(0, self.fg_noise_std * 1.1**k, features_spatial.shape)
+                            for k in range(self.mix_noise)], dim=1).to(self.device)  # (B, K, H_p, W_p, C)
+                        noise_fg = (noise_fg * noise_one_hot.view(B, self.mix_noise, 1, 1, 1)).sum(1)  # (B, H_p, W_p, C)
+                        noise_fg = noise_fg * mask.expand_as(features_spatial)  # 前景加权
+
+                        noise_bg = torch.stack([
+                            torch.normal(0, self.bg_noise_std * 1.1**k, features_spatial.shape)
+                            for k in range(self.mix_noise)], dim=1).to(self.device)  # (B, K, H_p, W_p, C)
+                        noise_bg = (noise_bg * noise_one_hot.view(B, self.mix_noise, 1, 1, 1)).sum(1)  # (B, H_p, W_p, C)
+                        noise_bg = noise_bg * (1 - mask).expand_as(features_spatial)  # 背景加权
+
+                        noise = noise_fg + noise_bg
+
+                        # 添加噪音到空间特征
+                        fake_feats_spatial = features_spatial + noise
+
+                        # 展平特征送判别器
+                        true_feats = features_spatial.view(-1, self.target_embed_dimension)
+                        fake_feats = fake_feats_spatial.view(-1, self.target_embed_dimension)
+                    else:
+                        # 原逻辑：均匀噪音
+                        true_feats = self._embed(img, evaluation=False)[0]  # flattened [B*num_patches, C]
+                        noise_idxs = torch.randint(0, self.mix_noise, torch.Size([true_feats.shape[0]]))
+                        noise_one_hot = torch.nn.functional.one_hot(noise_idxs, num_classes=self.mix_noise).to(self.device) # (N, K)
+                        noise = torch.stack([
+                            torch.normal(0, self.noise_std * 1.1**(k), true_feats.shape)
+                            for k in range(self.mix_noise)], dim=1).to(self.device) # (N, K, C)
+                        noise = (noise * noise_one_hot.unsqueeze(-1)).sum(1)
+                        fake_feats = true_feats + noise
 
                     # 把真实特征和伪造特征拼接（N+N=2N），都是送入判别器
                     scores = self.discriminator(torch.cat([true_feats, fake_feats]))
@@ -613,7 +667,7 @@ class SimpleNet(torch.nn.Module):
 
         # 这里的mask对应的是预测结果，而不是ground truth mask，其实写成segmentations更好理解
         # 后面都是当作segmentations读出来的
-        # 想要绘制的画，直接plt就可以保存，不需要用utils
+        # 想要绘制的话，直接plt就可以保存，不需要用utils
         return scores, masks, features, labels_gt, masks_gt
 
     # 处理一个batch的图片
@@ -627,13 +681,11 @@ class SimpleNet(torch.nn.Module):
             self.pre_projection.eval()
         self.discriminator.eval()
         with torch.no_grad():
-            # 得到特征向量
+            # 得到特征向量（预测时不需空间形状）
             features, patch_shapes = self._embed(images,
                                                  provide_patch_shapes=True, 
                                                  evaluation=True)
-            # 特征投影
-            if self.pre_proj > 0:
-                features = self.pre_projection(features)
+            # 特征投影（已展平）
 
             # features = features.cpu().numpy()
             # features = np.ascontiguousarray(features.cpu().numpy())
