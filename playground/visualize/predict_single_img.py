@@ -36,9 +36,9 @@ import backbones
 
 # ----------- 配置 -----------
 img_dir = "playground/visualize/results/predict/img/rgb"
-shellfile_path = "playground/my_scripts/02v_wideresnet50_class_all.sh"
-ckpt_path = "playground/visualize/results/train/02/c10_ckpt.pth"
-output_dir = "playground/visualize/results/predict/run/02/"
+shellfile_path = "playground/my_scripts/06t_wideresnet50_class_combined.sh"
+ckpt_path = "playground/visualize/results/train/06/ckpt_epoch_6.pth"
+output_dir = "playground/visualize/results/predict/run/06/"
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 batch_size = 4
@@ -164,26 +164,32 @@ for i in range(0, len(img_paths), batch_size):
         # 右上：热力图
         plt.subplot(2, 2, 2)
         if mask_img is not None:
-            plt.imshow(mask_img, cmap="jet")
+            plt.imshow(mask_img, cmap="gray")
         else:
             plt.imshow(np.zeros((imagesize, imagesize)), cmap="gray")
         plt.title("Anomaly Map")
         plt.axis("off")
-        # 左下：depth热力图
+        # 左下：深度掩膜过滤后的异常热力图
         plt.subplot(2, 2, 3)
         depth_path = os.path.join("playground/visualize/results/predict/img/depth", f"{base}_depth.npy")
-        if os.path.exists(depth_path):
+        if os.path.exists(depth_path) and mask_img is not None:
             depth_map = np.load(depth_path)
             # 若尺寸不符，resize到imagesize
             if depth_map.shape != (imagesize, imagesize):
                 from skimage.transform import resize as sk_resize
                 depth_map = sk_resize(depth_map, (imagesize, imagesize), preserve_range=True, anti_aliasing=True)
-            plt.imshow(depth_map, cmap="jet")
-            plt.title("Depth Map")
+            
+            # 创建深度掩膜（深度值大于阈值的区域）
+            depth_mask = (depth_map > 80).astype(np.uint8)
+            # 应用深度掩膜过滤异常热力图
+            filtered_mask = mask_img * depth_mask
+            plt.imshow(filtered_mask, cmap="gray")
+            plt.title("Depth-filtered Anomaly")
         else:
             plt.imshow(np.zeros((imagesize, imagesize)), cmap="gray")
-            plt.title("Depth Map (None)")
+            plt.title("Depth-filtered (None)")
         plt.axis("off")
+        
         # 右下：融合热力图
         plt.subplot(2, 2, 4)
         if mask_img is not None:
@@ -193,10 +199,12 @@ for i in range(0, len(img_paths), batch_size):
             mask_img_norm = mask_img.astype(np.float32) / 255.0
             if mask_img_norm.ndim == 2:
                 mask_img_norm = np.expand_dims(mask_img_norm, axis=2)
-            mask_img_color = plt.get_cmap("jet")(mask_img_norm.squeeze())[:, :, :3]
-            mask_img_color = mask_img_color[..., :3]
+            # 使用灰度值进行融合
+            mask_img_gray = mask_img_norm.squeeze()
+            if mask_img_gray.ndim == 2:
+                mask_img_gray = np.stack([mask_img_gray] * 3, axis=2)
             # 融合
-            fused = orig_img_np * 0.5 + mask_img_color * 0.5
+            fused = orig_img_np * 0.5 + mask_img_gray * 0.5
             fused = np.clip(fused, 0, 1)
             plt.imshow(fused)
         else:

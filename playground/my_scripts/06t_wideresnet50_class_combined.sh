@@ -1,5 +1,5 @@
 datapath=/kaggle/working/insplad
-datasets=('polymer-insulator-lower-shackle')
+datasets=('class_combined')
 dataset_flags=($(for dataset in "${datasets[@]}"; do echo '-d '"${dataset}"; done))
 
 python3 main.py \
@@ -8,7 +8,7 @@ python3 main.py \
 --log_group simplenet_insplad \
 --log_project INSPLAD_Results \
 --results_path results \
---run_name 06t_wideresnet50_class_new_1 \
+--run_name 06t_wideresnet50_class_combined \
 net \
 -b wideresnet50 \
 -le layer2 \
