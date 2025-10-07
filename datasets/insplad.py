@@ -149,7 +149,7 @@ class InsPLADDataset(torch.utils.data.Dataset):
 
             for anomaly in anomaly_types:
                 anomaly_path = os.path.join(classpath, anomaly)
-                anomaly_files = sorted(os.listdir(anomaly_path))
+                anomaly_files = [f for f in anomaly_files if not f.endswith('_depth.npy')]
                 imgpaths_per_class[classname][anomaly] = [
                     os.path.join(anomaly_path, x) for x in anomaly_files
                 ]
@@ -168,7 +168,7 @@ class InsPLADDataset(torch.utils.data.Dataset):
 
                 if self.split == DatasetSplit.TEST and anomaly != "good":
                     anomaly_mask_path = os.path.join(maskpath, anomaly)
-                    anomaly_mask_files = sorted(os.listdir(anomaly_mask_path))
+                    anomaly_mask_files = [f for f in anomaly_mask_files if not f.endswith('_depth.npy')]
                     maskpaths_per_class[classname][anomaly] = [
                         os.path.join(anomaly_mask_path, x) for x in anomaly_mask_files
                     ]
