@@ -31,7 +31,7 @@ class Discriminator(torch.nn.Module):
 
         _hidden = hidden if hidden is not None else in_planes
         self.body = torch.nn.Sequential()
-        
+         
         for i in range(n_layers-1):
             _in = in_planes if i == 0 else _hidden
             self.body.add_module('block%d'%(i+1),
@@ -527,7 +527,7 @@ class SimpleNet(torch.nn.Module):
                         features_spatial, patch_shapes = self._embed(img, evaluation=False, provide_patch_shapes=True, return_spatial=True)
                         scales = patch_shapes[0]  # [H_p, W_p]
 
-                        # 生成前景掩膜（假设高值是前景）
+                        # 生成前景掩膜（高值是前景）
                         mask = (depth > self.depth_threshold).float()  # [B, 1, H_img, W_img]
 
                         # 下采样掩膜到 patch 分辨率

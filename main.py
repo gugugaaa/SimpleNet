@@ -17,7 +17,7 @@ LOGGER = logging.getLogger(__name__)
 
 _DATASETS = {
     "mvtec": ["datasets.mvtec", "MVTecDataset"],
-    "insplad": ["datasets.mvtec", "InsPLADDataset"],  # 添加支持 InsPLADDataset
+    "insplad": ["datasets.insplad", "InsPLADDataset"],  # 添加支持 InsPLADDataset
 }
 
 
@@ -111,7 +111,7 @@ def run(
                     LOGGER.info("{0}: {1:3.3f}".format(key, item))
 
         LOGGER.info("\n\n-----\n")
-
+ 
     # 保存结果和csv
     result_metric_names = list(result_collect[-1].keys())[1:]
     result_dataset_names = [results["dataset_name"] for results in result_collect]

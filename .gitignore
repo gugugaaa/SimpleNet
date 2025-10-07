@@ -3,3 +3,5 @@ __pycache__/
 results/
 .old/
 playground/models/eigen_cam
+depth-dataset/
+rgb-depth/
